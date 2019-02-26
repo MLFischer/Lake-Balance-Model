@@ -1,0 +1,59 @@
+##################
+# Lake Balance Model
+# Martin Trauth August 2007
+# rewritten in R by M L Fischer 2017
+##################
+
+##Prepare your working directory and stuff
+#setwd("Chew_5_Hydromodel_v2/model")
+#remove(list=ls()) #clean up#
+
+#look at important/ target variables
+#t_s_ld #temperature on land surface (calc)
+#t_s_lk #temperature on lake surface (calc)
+#e_ld   #evaporation land
+#e_lk   #evaporation lake
+
+#Part 1: modelling the land
+setwd("./land")
+
+source("constantsland.R")
+source("rswland.R")
+source("rlu.R")
+source("rld.r")
+source("nroot.R")
+source("es.R")
+source("rld.R")
+source("heat.R")
+source("eva.R")
+source("net.R")
+
+source("evaland.R")
+
+print(c("t_a_ld",t_a_ld))
+print(c("t_s_ld",t_s_ld))
+print(c("e_ld",e_ld))
+
+setwd("./../");setwd("./lake")
+
+source("constantslake.R")
+source("rswlake.R")
+source("rlu.R")
+source("rld.r")
+source("nroot.R")
+source("es.R")
+source("rld.R")
+source("heat.R")
+source("eva.R")
+source("net.R")
+
+source("evalake.R")
+
+print(c("t_a_lk",t_a_lk))
+print(c("t_s_lk",t_s_lk))
+print(c("e_lk",e_lk))
+
+setwd("./../")
+
+############
+############
