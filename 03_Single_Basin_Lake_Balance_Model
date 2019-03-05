@@ -5,7 +5,7 @@
 ##################
 
 ##Prepare your working directory and stuff
-#setwd("Chew_5_Hydromodel_v2/model")
+#setwd("...")
 #remove(list=ls()) #clean up#
 
 #look at important/ target variables
