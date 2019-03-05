@@ -1,0 +1,370 @@
+################
+#SEBAL v2.0 by M.L.Fischer 05/2018
+#Part 2: SEBAL 
+################
+
+################
+# Sec 1 Preparation
+#
+remove(list=ls()) #clean up#
+removeTmpFiles(0)
+library(tiff) #just load some packages
+library(raster)
+library(rgdal)
+library(rgeos)
+library(sp)
+library(RPyGeo)
+library(MODIS)
+library(rts)
+library(raster)
+library(RCurl)
+library(insol)
+
+inpath <-  "C:/..."
+dpath  <-  "C:/..."
+outpath <- "C:/..."
+outpath3 <- "C:/..."
+outpath4 <- "C:/..."
+mrt_path<- "C:/..."
+setwd(inpath)
+
+#####################################
+#STUDY AREA, DEM as resample pattern
+catch.shp <- readOGR(".",layer = "catch_chew_utm") #shapefile (masc)
+sr <- "+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0" 
+catch.shp<- spTransform(catch.shp,sr)
+plot(catch.shp)
+dem <- raster("masc_chew.tif")
+dem <- aggregate(dem, 5,mean)
+load(file="climate_by_month.RData")
+
+#function to delete extrem values
+extr<- function(ra){
+  ra[which(ra[]> cellStats(ra,mean)+(5*cellStats(ra,sd)))]<- NA
+  ra[which(ra[]< cellStats(ra,mean)-(5*cellStats(ra,sd)))]<- NA
+  return(ra)
+}
+
+
+######################################
+# Sec 2 Loop for each day
+# proceed SEBAL computation if cloudcouver threshold has been passed
+for ( i in 1:365){
+# DATE AND TIME: 
+print(paste("DAY:",i)) #controllsequence
+day <- i
+date <- as.Date((i-1), origin = "2010-01-01")
+month <- as.numeric( substring(toString(date),6,7))
+
+############################################
+# load data:
+ws <- climate.stacks[[8]]
+ws <- ws[[month]]
+ws <- projectRaster(ws, crs = sr)
+ws<- resample(ws, dem, method="bilinear")
+
+setwd(outpath)
+myFiles <- list.files(pattern = "\\.tif$")
+myFiles <- myFiles[which(substr(myFiles,16,25)==toString(date))]#MOD09GA
+
+
+
+
+##############################################
+#cc threshold 
+if (length(myFiles)>4){
+##############################################
+  
+  
+albedo <- raster(myFiles[which(substr(myFiles,27,31)=="albed")])
+eps_0  <- raster(myFiles[which(substr(myFiles,27,31)=="eps_0")])
+LST    <- raster(myFiles[which(substr(myFiles,27,31)=="LST.t")])
+cc     <- raster(myFiles[which(substr(myFiles,27,30)=="cc_d")])
+
+#define cloud cover mask
+cc    <- resample(cc, dem, method="bilinear")
+cc[cc<0.8]  <- NA
+cc[cc>=0.8] <- 1
+
+dvt    <- raster(myFiles[which(substr(myFiles,27,30)=="day_")])
+sol_azi<- raster(myFiles[which(substr(myFiles,27,35)=="olarAzimu")])
+sol_zen<- raster(myFiles[which(substr(myFiles,27,35)=="olarZenit")])
+####
+myFiles <- list.files(pattern = "\\.tif$")
+myFiles <- myFiles[which(substr(myFiles,27,30)=="NDVI")]
+day_ndvi<- as.Date(substr(myFiles,16,25))
+ndvi    <- raster(myFiles[which(day_ndvi- date == min(day_ndvi- date))])
+###################
+myFiles <- list.files(pattern = "\\.tif$")
+myFiles <- myFiles[which(substr(myFiles,1,7)=="MCD12Q1")]#MOD09GA
+z_0     <- raster(myFiles[2])
+
+###################
+#delete couple of non-adequate values
+LST[which(LST[]<150)] <- NA
+dvt[which(dvt[]>24)]  <- NA
+
+albedo <- resample(albedo, dem, method="bilinear")*cc
+eps_0  <- resample(eps_0, dem, method="bilinear")*cc
+LST    <- resample(LST, dem, method="bilinear")*cc
+dvt    <- resample(dvt, dem, method="bilinear")*cc
+ndvi   <- resample(ndvi, dem, method="bilinear")*cc
+z_0    <- resample(z_0, dem, method="bilinear")*cc
+albedo <- extr(albedo)
+eps_0  <- extr(eps_0)
+LST    <- extr(LST)
+dvt    <- extr(dvt)
+ndvi   <- extr(ndvi)
+
+#calculate Julian Day
+Jday<- JDymd(year=2010,month=01,day=i,hour=dvt) 
+############################################
+
+
+############################################
+# SHORT WAVE RADIATION DOWN:
+# Allen et al. 2007
+#delta = declination of the Earth positive in summer in the northern hemisphere
+#phi = = latitude of the pixel positive for the northern hemisphere and negative for the southern hemisphere
+#sl    = surface slope; s=0 for horizontal and s=2 radians for vertical downward slopes is always positive and represents the downward slope in any direction
+#gamma = surface aspect angle, where =0 for slopes oriented due south, = -2 radians for slopes oriented due east, 
+#omega = hour angle, where =0 at solar noon, is negative in morning, and  is positive in afternoon
+
+phi        <- dem
+phi        <- projectRaster(phi,crs="+proj=longlat +datum=WGS84")
+phi[]      <- xFromCol(phi)
+phi_long   <- phi
+phi_long   <- projectRaster(phi_long,crs="+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+phi_long   <- resample(phi_long, dem, method="bilinear")
+
+phi[]      <- yFromCell(phi,1:50499)
+phi        <- projectRaster(phi,crs="+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0")
+phi        <- resample(phi, dem, method="bilinear")
+phi        <- radians(phi)
+
+delta      <- radians(declination(Jday))
+sl         <- terrain(dem, opt='slope', unit='radians',  neighbors=8)
+gamma      <- terrain(dem, opt='aspect', unit='radians',  neighbors=8) - pi
+
+omega      <- hourangle(jd = Jday, longitude=  phi_long , timezone =3)
+
+cos_teta_hor <- (sin(delta)*sin(phi)) + (cos(delta)*cos(phi)*cos(omega))
+teta_hor     <- acos(cos_teta_hor)
+
+cos_teta_rel <- (sin(delta)*sin(phi)*cos(sl)) -
+                (sin(delta)*cos(phi)*sin(sl)*cos(gamma))+
+                (cos(delta)*cos(phi)*cos(sl)*cos(omega))+
+                (cos(delta)*sin(phi)*sin(sl)*cos(gamma)*cos(omega))+
+                (cos(delta)*sin(gamma)*sin(sl)*sin(omega))
+
+teta_rel     <- acos(cos_teta_rel)
+
+#Air pressure as function of height kPa, 293 = standart temperature
+P <- 101.3 * ((293 - 0.0065*dem)/293)^5.26
+
+#W   = water in the atmosphere mm
+#e_a = near-surface vapor pressure kPa, could be expressed as F(T_a) !!!
+e_a <- 23.4 # https://www.internetchemie.info/chemie-lexikon/daten/w/wasser-dampfdruck.php
+W   <- 0.14*e_a*P + 2.1
+
+####
+# tau_sw broad-band atmospheric transmissivity
+# Kt  =unitless turbidity coefficient
+# where Kt=1.0 for clean air and Kt=0.5 for extremely turbid
+# teta_horsolar zenith angle over a horizontal surface
+# from Eq.8
+K_t    <- 1 
+tau_sw <- 0.35 + (0.627 * exp((-0.00146* P /( K_t * cos_teta_hor)) - (0.075*((W/cos_teta_hor)^0.4)) )) 
+d2     <- 1/(1+0.033 * cos(day*2*pi/365))
+
+######
+G_sc <-  1367     #...solar constant W/m^2
+#teta_rel          ...solar incidence angle
+#tau_sw            ...broad-band atmospheric transmissivity
+#d                 ...relative Earth-Sun distance
+R_sd <-  G_sc * cos_teta_rel * tau_sw / d2
+
+plot((1-albedo)*R_sd)
+###################################################################
+###################################################################
+
+sigma     = 5.67E-8;  #Stefan Boltzmann constant
+R_lu <- eps_0 * sigma * (LST^4)
+
+T_a    <- cellStats(LST, min)
+eps_a  <- 0.85 * (-1*(log(tau_sw))         )^0.09
+R_ld   <- eps_a * sigma * (LST^4)
+
+####################################################################
+# NET INST RADIATION
+# Allen et al. 2007
+R_n <- R_sd - (albedo * R_sd) + R_ld - R_lu - ((1- eps_0)*R_ld)
+plot(R_n)
+#####################################################################
+# NET INST SOIL HEAT FLUX
+# Basiannsen et al. 2000
+G <- R_n *  ( (( LST - 273.16)/albedo )  *  ((0.0038* albedo) + 0.0074*(albedo^2))  *  (1-0.98*(ndvi^4))) 
+
+#####################################################################
+# SENSIBLE HEAT FLUX
+# Allen et al. 2007
+# Zhang et al. 2011
+# Bastiannsen 1999a
+# https://github.com/ufcg-lsd/SEBAL/tree/master/workspace/R
+
+
+# Step 1: u ;friction velocity
+ws     <- ws*cc
+k      <- 0.41 #karmann constant
+u      <- (k*ws)/ log(10/z_0)
+u200   <- u * ((log(200/z_0))/(k))
+
+# Step 2: r_ah aerodynamic resistance to heat transport (s/m)
+r_ah  <- log(2/0.1)/(u * k)
+Rs    <- 287.053 #specific gas constant J/(kg·K)
+c_p   <- 1004    #Specific heat of air
+g     <- 9.81	   #gravity constant
+dT    <- 0       #initial virtual temperature gradient
+p_a   <- (P *100)/ ((LST - dT) * Rs)	#air pressure
+
+
+idx   <- which.max(LST)  #hottest pixel
+rah.hot.0 <- r_ah[idx]
+idx2  <- which.min(LST)
+
+pos    <- xyFromCell(LST,idx)
+t_s_hot<- as.numeric(LST[idx])
+H_hot  <- as.numeric(R_n[idx]-G[idx])
+pos    <- xyFromCell(LST,idx2)
+dT_cold<- 0
+t_s_c  <- as.numeric(LST[idx2])
+rah.hot<- NULL
+rah.hot[0]<- r_ah[idx]
+
+#######################
+#iterative solution for r_ah and u
+#through Monin Obukov length
+for (i in 1:15){
+dT_hot <- H_hot * as.numeric(r_ah[idx]) /( c_p * as.numeric(p_a[idx]))
+a_dt   <- (dT_hot - 0)/(t_s_hot-t_s_c)
+b_dt   <- - (a_dt * t_s_c)
+
+# T_d
+dT <- b_dt + (a_dt * LST)
+# H
+H <- p_a * c_p * dT / r_ah 
+# L (Monin Obukov length)
+L<- -1*((p_a*c_p*(u^3)*LST)/(k*g*H)) # Changed from Raster to Vector
+
+# stability correction:
+x200    <- (1-16*200/L)^0.25 
+y_2     <- (1-16*2/L)^0.25 
+y_0.1   <-(1-16*0.1/L)^0.25 
+psi_0.1 <-2*log((1+y_0.1^2)/2) 
+psi_0.1[L>0 &!is.na(L)] <-  -5*(0.1/L[L>0 &!is.na(L)]) 
+psi_2   <-2*log((1+y_2^2)/2) 
+psi_2[L>0 &!is.na(L) ] <- -5*(2/L[L>0 &!is.na(L)]) 
+psi_200 <- 2*log((1+x200)/2)+log((1+x200^2)/2)-2*atan(x200)+0.5*pi 
+psi_200[L>0 &!is.na(L) ] <- -5*(2/L[(L>0 &!is.na(L))]) 
+
+# update u
+u      <- k*u200/(log(200/z_0)-psi_200) 
+# update r_ah
+r_ah   <- (log(2/0.1)-psi_2+psi_0.1)/(u*k) #  Aerodynamic resistency for all pixels
+rah.hot[i]<-r_ah[idx]
+
+print(rah.hot[i])
+}####################### LOOP END
+
+
+######################################
+# get the latent inst. heat flux as residuum
+# Bastiannsen 2005
+
+#evaporation per hour
+LE       <- (R_n - G  -H)
+lambda   <- (2.501 - (0.00236*(LST-273.15)))*10^6
+ET_inst  <- 3600*1000 * (LE/(lambda * 997))
+
+#evaporation fraction
+EF<-LE/(LE + H )
+
+# Inverse square of the distance on earth-sol
+dr<-(1/sqrt(d2))^2 		
+
+Gsc   <- 0.082	# Solar constant
+sigma2<-0.409*sin(((2*pi/365)*Jday)-1.39) # Declination Solar (rad)
+omegas<-acos((-1)*tan(phi)*tan(sigma2)) 				# Angle Time for sunsets (rad)
+Ra24h <-(((24*60/pi)*Gsc*dr)*(omegas*sin(phi)*
+         sin(sigma)+cos(phi)*cos(sigma)*sin(omegas)))*(1000000/86400)
+
+# calculate daily surface radiation as hourly integral:
+for ( i_t in 5:24){
+  Jday         <- JDymd(year=2010,month=01,day=i,hour=i_t) 
+  delta        <- radians(declination(Jday))
+  omega        <- hourangle(jd = Jday, longitude=  phi_long , timezone =3)
+  cos_teta_hor <- (sin(delta)*sin(phi)) + (cos(delta)*cos(phi)*cos(omega))
+  teta_hor     <- acos(cos_teta_hor)
+  cos_teta_rel <-  (sin(delta)*sin(phi)*cos(sl)) -
+                   (sin(delta)*cos(phi)*sin(sl)*cos(gamma))+
+                   (cos(delta)*cos(phi)*cos(sl)*cos(omega))+
+                   (cos(delta)*sin(phi)*sin(sl)*cos(gamma)*cos(omega))+
+                   (cos(delta)*sin(gamma)*sin(sl)*sin(omega))
+  teta_rel     <- acos(cos_teta_rel)
+  G_sc         <- 1367     #solar constant 1367 Wm
+  K_t          <- 1
+  tau_sw       <- 0.35 + (0.627 * exp((-0.00146* P /( K_t * cos_teta_hor)) - (0.075*((W/cos_teta_hor)^0.4)) )) 
+  ######
+  d2           <- 1/(1+0.033 * cos(day*2*pi/365))
+  ######
+  R_sd <-  G_sc * cos_teta_rel * tau_sw / d2
+  if(i_t==5){R_sd24<-R_sd}
+  if (i_t>5){R_sd24<- sum(R_sd24,R_sd, na.rm=TRUE)
+  }}
+Rs24h<- R_sd24/24
+Rs24h[which(Rs24h[]==0)]<- NA
+
+# Method De Bruin 2000
+FL       <- 110                                
+Rn24h_dB <- (1-albedo)*Rs24h-FL*Rs24h/Ra24h	
+  
+
+# daily evaporation
+ET_24 <- (86400 * 1000)* (EF * Rn24h_dB) / (lambda * 997) 
+ET_24[which(ET_24[]<0)]<- NA
+ET_24[which(ET_24[]>30)]<- NA
+
+print((cellStats(ET_24,mean)))
+print((cellStats(ET_24,mean))*365)
+
+
+################
+# Sec 3 Save Results
+#
+setwd(outpath4)
+
+raname<-paste(toString(date),"_H",sep="")
+writeRaster(H, filename=raname, format="GTiff", overwrite=TRUE)  
+
+raname<-paste(toString(date),"_LE",sep="")
+writeRaster(LE, filename=raname, format="GTiff", overwrite=TRUE)  
+
+raname<-paste(toString(date),"_ET_inst",sep="")
+writeRaster(ET_inst, filename=raname, format="GTiff", overwrite=TRUE)  
+
+raname<-paste(toString(date),"_EF",sep="")
+writeRaster(EF, filename=raname, format="GTiff", overwrite=TRUE)  
+
+raname<-paste(toString(date),"_Rn24h_dB",sep="")
+writeRaster(Rn24h_dB, filename=raname, format="GTiff", overwrite=TRUE)  
+
+raname<-paste(toString(date),"_ET_24",sep="")
+writeRaster(ET_24, filename=raname, format="GTiff", overwrite=TRUE) 
+
+raname<-paste(toString(date),"R_n",sep="")
+writeRaster(R_n, filename=raname, format="GTiff", overwrite=TRUE) 
+
+raname<-paste(toString(date),"G",sep="")
+writeRaster(G, filename=raname, format="GTiff", overwrite=TRUE) 
+
+}}
