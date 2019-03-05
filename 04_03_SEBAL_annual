@@ -1,0 +1,372 @@
+################
+#SEBAL v2.0 by M.L.Fischer 05/2018
+#Part 4: Annual Water Balance 
+################
+
+################
+# Sec 1 Preparation
+#
+remove(list=ls()) 
+removeTmpFiles(0)
+##
+library(tiff) 
+library(raster)
+library(rgdal)
+library(rgeos)
+library(sp)
+library(RPyGeo)
+library(MODIS)
+library(rts)
+library(raster)
+library(RCurl)
+library(insol)
+
+inpath   <-  "C:/..."
+dpath    <-  "C:/..."
+outpath  <- "C:/..."
+trmmpath <-  "C:/..."
+outpath3 <- "C:/..."
+result   <- "C:/..."
+mrt_path<- "C:/...
+
+setwd(inpath)
+
+#####################################
+#STUDY AREA, DEM with target resolution
+catch.shp <- readOGR(".",layer = "catch_chew_utm") #shapefile (masc)
+sr <- "+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0" 
+catch.shp<- spTransform(catch.shp,sr)
+plot(catch.shp,add=T)
+dem <- raster("masc_chew.tif")
+
+setwd(outpath3)
+
+myFiles <- list.files(pattern = "\\.tif$")
+myFiles <- myFiles[which(substr(myFiles,12,16)=="ET_24")]#MOD09GA
+
+sum<- NULL
+date <- as.Date(substr(myFiles,1,10))
+month <- as.numeric(substr(myFiles,6,7))
+
+dpm <- c(31,28,31,30,31,30,31,31,30,31,30,31)
+mcount <- seq(1,12,1)
+mname <- c("jan","feb","mar","apr","may","jun","jul","aug","sep","oct","nov","dec")
+anu <- data.frame(mcount,mname,dpm)
+
+###############################
+#FILL NA
+#fill.na <- function(x) {
+#  center = 0.5 + (width*width/2) 
+#  if( is.na(x)[center] ) {
+#    return( mean(x, na.rm=TRUE) )
+#  } else {
+#    return( x[center] )
+#  }
+#}  
+#width = 15
+#par(mfrow=c(1,3))
+#for ( i in 1:length(myFiles)){
+#  ET_anu<- raster(myFiles[i])
+#  plot(ET_anu)
+#  ET_anu <-  focal(ET_anu, w = matrix(1,width,width), fun = fill.na, 
+#                   pad = TRUE, na.rm = FALSE )
+#  plot(ET_anu)
+#  ET_anu<-crop(ET_anu,catch.shp)
+#  ET_anu<-mask(ET_anu,catch.shp)
+#  plot(ET_anu)
+#  writeRaster(ET_anu, filename=myFiles[i], format="GTiff", overwrite=TRUE)
+#}
+
+
+################################
+# load all data
+ET_anu<- raster(myFiles[1])
+
+for ( i in 2:length(myFiles)){
+  plot(raster(myFiles[i]))
+  ET_anu<- sum(ET_anu,raster(myFiles[i]), na.rm=TRUE)
+  sum[i]<-cellStats(raster(myFiles[i]),mean)
+  print(cellStats(raster(myFiles[i]),mean))
+  raname <- paste(mname[month[i]],"ET",sep="_")
+  }
+
+
+######################################
+# calculate monthly evaporation estimates
+
+jan_ET<- 31*(sum(raster(myFiles[1]),raster(myFiles[2]),raster(myFiles[3]),
+             raster(myFiles[4]),raster(myFiles[5]),raster(myFiles[6]),
+             raster(myFiles[7]),raster(myFiles[8]),raster(myFiles[9]),
+             raster(myFiles[10]),raster(myFiles[11]),raster(myFiles[12]),raster(myFiles[13]),
+             na.rm=T))/13
+jan_ET[which(jan_ET[]==0)]<- NA
+
+feb_ET <- 28*(sum(raster(myFiles[14]),raster(myFiles[15]),raster(myFiles[16]),
+                  raster(myFiles[17]),na.rm=T)/4)
+feb_ET[which(feb_ET[]==0)]<- NA
+
+mar_ET <- 31*(sum(raster(myFiles[18]),raster(myFiles[19]),raster(myFiles[20]),na.rm=T)/3)
+mar_ET[which(mar_ET[]==0)]<- NA
+
+jun_ET <- 30*raster(myFiles[21])
+
+apr_ET <- 30*(((mar_ET/31) + (jun_ET/30))/2)
+may_ET <- 31*(((mar_ET/31) + (jun_ET/30))/2)
+
+
+jul_ET <- 31*raster(myFiles[22])
+
+aug_ET <- 31*(sum(raster(myFiles[23]),raster(myFiles[24]),na.rm=T)/2)
+aug_ET[which(aug_ET[]==0)]<- NA
+
+nov_ET <- 30*(sum(raster(myFiles[25]),raster(myFiles[26]),raster(myFiles[27]),
+                 raster(myFiles[28]),raster(myFiles[29]),raster(myFiles[30]),
+                 raster(myFiles[31]),na.rm=T
+                 )/7)
+nov_ET[which(nov_ET[]==0)]<- NA
+
+dec_ET <- 31*(sum(raster(myFiles[32]),raster(myFiles[33]),raster(myFiles[34]),
+                 raster(myFiles[35]),raster(myFiles[36]),raster(myFiles[37]),
+                 raster(myFiles[38]),raster(myFiles[39]),raster(myFiles[40]),
+                 raster(myFiles[41]),raster(myFiles[42]),raster(myFiles[43]),
+                 na.rm=T)/12)
+  
+
+dec_ET[which(dec_ET[]==0)]<- NA
+
+sep_ET <- 30*(((aug_ET/31) + (nov_ET/30))/2)
+oct_ET <- 31*(((aug_ET/31) + (nov_ET/30))/2)
+
+plot(sum~month)
+
+ET_month<- as.data.frame(tapply(sum,month,mean,na.rm=T))
+ET_month <- rbind (ET_month,0,0,0,0)
+ET_month <- cbind(ET_month,c(1,2,3,6,7,8,11,12,4,5,9,10))
+
+ET_month<- ET_month[order(ET_month[,2]),][,1]
+ET_month[c(4,5)]<-mean(ET_month[c(3,6)])
+ET_month[c(9,10)]<-mean(ET_month[c(8,11)])
+
+anu<- cbind(anu,ET_month)
+anu$ETM <- anu$dpm* anu$ET_month
+###################################
+
+###########################
+# TRMM precipitation Bookhagen 2009
+setwd(trmmpath)
+myFiles <- list.files(pattern = "\\.tif$")
+for (i in 2:length(myFiles)){
+  srs        <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  catch.shp  <- spTransform(catch.shp,srs)
+  ra         <- raster(myFiles[i])
+  raname     <- paste("TRMM",substr(myFiles[i],10,12),sep="_")
+  crs(ra)    <- srs
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+
+  sr         <- "+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  ra         <- projectRaster(ra, crs = sr)
+  ra         <- resample(ra, jan_ET, method="bilinear")
+  catch.shp  <- spTransform(catch.shp,sr)
+
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+  assign(raname,ra)
+  plot(ra, main =raname);plot(catch.shp,add=T)
+  print(paste(raname,cellStats(ra,mean, na.rm=TRUE)))
+  anu[which(anu[,2]==substr(myFiles[i],10,12)),6]<-cellStats(ra,mean, na.rm=TRUE)
+}
+colnames(anu)[6]<-"pre"
+
+#####################
+#create raster brick
+TRMM <- brick(TRMM_jan,TRMM_feb,TRMM_mar,TRMM_apr,TRMM_may,TRMM_jun,TRMM_jul,TRMM_aug,TRMM_sep,TRMM_oct,TRMM_nov,TRMM_dec)
+ET <- brick(jan_ET,feb_ET,mar_ET,apr_ET,may_ET,jun_ET,jul_ET,aug_ET,sep_ET,oct_ET,nov_ET,dec_ET)
+#########
+plot(ET,zlim=c(0,150),main=anu$mname)
+plot(TRMM,zlim=c(0,200),main=anu$mname)
+
+
+
+###################################
+# calculate water balance
+# Thornthwaite, Charles Warren and Mather, JR 1955
+as.vector(cellStats(ET,mean))
+as.vector(cellStats(TRMM,mean))
+anu$dif <- anu$pre-anu$ETM
+SB      <- NULL
+RO      <- NULL 
+SB[1]   <-0
+RO[1]   <-0
+for (i in 1:11){
+  if (anu$dif[i]>0){
+  SB[i+1]<-SB[i] + (0.5*anu$dif[i])  
+  }else{SB[i+1]<-SB[i] + (anu$dif[i])  }
+  RO[i+1]<- (0.5*anu$dif[i+1]) 
+  if(SB[i+1]<0){SB[c(i+1)]<-0}
+}
+anu$SB     <- SB
+anu$def_ef <- anu$SB+anu$pre - anu$ETM
+anu$def_ef[which(anu$def_ef>0)] <- 0
+anu$ET_f   <- anu$ETM+anu$def_ef
+RO[RO<0]   <- 0
+anu$RO     <- RO
+###
+blue <- rgb(0, 0, 1, alpha=0.25)
+red <- rgb(1, 0, 0, alpha=0.25)
+greyisch <- rgb(0, 0, 0, alpha=0.25)
+gruenisch <- rgb(0,0.8,0,alpha=0.25)
+
+pdf(file= "08_anu.pdf",width=5 ,height= 5,bg="transparent",family="Helvetica")#,paper="a4")
+
+par(mfrow = c(4,1),
+    oma = c(4,4,0,0) + 0.1,
+    mar = c(1,1,1,1) + 0.1)
+barplot(anu$pre,space=0,ylim=c(0,200),col=blue,names.arg=anu$mname,border="white")
+barplot(anu$ETM,space=0,ylim=c(0,200),col=red,names.arg=anu$mname,border="white",add=T,axes=F)
+
+barplot(anu$SB,space=0,ylim=c(0,200),col=gruenisch,names.arg=anu$mname,border="white")
+barplot(anu$RO,space=0,ylim=c(0,200),col=blue,names.arg=anu$mname,border="white")
+
+barplot(anu$ET_f,space=0,ylim=c(0,200),col=red,names.arg=anu$mname,border="white")
+dev.off()
+
+################################
+# plot the results
+par(mfrow=c(1,1))
+pdf(file= "08_SEBAL.pdf",width=10 ,height= 6,bg="transparent")#,paper="a4")
+barplot(anu$pre,space=0,ylim=c(0,200),col="slategray1",names.arg=anu$mname,border="white")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+lines(anu$ETM~c(0.5:11.5), ylim=c(0,200), col="indianred1",pch=18,type="p")
+lines(anu$ET_f~c(0.5:11.5), ylim=c(0,200), col="indianred4",pch=18,type="b",cex = 1.25)
+lines(anu$SB~c(0.5:11.5), ylim=c(0,200), col="palegreen4",pch=18,type="b")
+lines(anu$RO~c(0.5:11.5), ylim=c(0,200), col="tan3",pch=18,type="b")
+
+legend(8, 200, legend=c("Precipitation", "Potential Evaporation","Actual Evaporation",
+                        "Soil Buffer","Subsurface Bias"),
+       col=c("slategray1", "indianred1","indianred4","palegreen4","tan3"), 
+       pch=18, cex=1,bty="o",bg="white",box.col="white")
+dev.off()
+
+# statistics: 
+sum(anu$ETM)
+sum(anu$ET_f)
+sum(anu$RO)
+sum(anu$SB)
+sum(anu$pre)
+
+#calculate ET_f:
+anu$rel  <- anu$ET_f/anu$ETM
+ET_f_m   <- ET*anu$rel
+sum(as.vector(cellStats(ET_f_m,mean)))
+ET_sum_f <- sum(ET_f_m)
+cellStats(ET_sum_f,mean)
+cellStats(ET_sum_f,median)
+cellStats(ET_sum_f,sd)
+cellStats(ET_sum_f,min)
+cellStats(ET_sum_f,max)
+
+
+###
+setwd(inpath)
+twi <- raster("twi.tif")
+
+
+twi2 <- ((twi) - cellStats(twi,min)) / (cellStats(twi,max)- cellStats(twi,min) )
+  
+plot(twi2)
+twi2 <- resample(twi2,ET_sum_f)
+
+for (i in 1:12){
+if (anu$rel[i]!=1) {
+ ET[[i]]<- ET[[i]]* (twi2 + (anu$rel[i]-cellStats(twi2,mean)))
+}
+}
+
+plot(ET)
+ETS<- sum(ET)
+
+cellStats(ETS,mean)
+
+writeRaster(ETS,"ETS.tif")
+#plot and save:
+pdf(file= "08_sebal_anu_map.pdf",width=12 ,height= 9,bg="transparent")
+plot(ET_sum_f)
+dev.off()
+
+catch.shp <- readOGR(".",layer = "abaya_polygon_30m") #shapefile (masc)
+setwd(trmmpath)
+myFiles <- list.files(pattern = "\\.tif$")
+for (i in 2:length(myFiles)){
+  srs        <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  catch.shp  <- spTransform(catch.shp,srs)
+  ra         <- raster(myFiles[i])
+  raname     <- paste("TRMM",substr(myFiles[i],10,12),sep="_")
+  crs(ra)    <- srs
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+  
+  sr         <- "+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  ra         <- projectRaster(ra, crs = sr)
+  #ra         <- resample(ra, dem, method="bilinear")
+  catch.shp  <- spTransform(catch.shp,sr)
+  
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+  assign(raname,ra)
+  plot(ra, main =raname);plot(catch.shp,add=T)
+  print(paste(raname,cellStats(ra,mean, na.rm=TRUE)))
+  
+  anu[which(anu[,2]==substr(myFiles[i],10,12)),13]<-cellStats(ra,mean, na.rm=TRUE)
+}
+setwd(inpath)
+catch.shp <- readOGR(".",layer = "chamo_polygon_30m") #shapefile (masc)
+setwd(trmmpath)
+myFiles <- list.files(pattern = "\\.tif$")
+for (i in 2:length(myFiles)){
+  srs        <- "+proj=longlat +datum=WGS84 +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  catch.shp  <- spTransform(catch.shp,srs)
+  ra         <- raster(myFiles[i])
+  raname     <- paste("TRMM",substr(myFiles[i],10,12),sep="_")
+  crs(ra)    <- srs
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+  
+  sr         <- "+proj=utm +zone=37 +datum=WGS84 +units=m +no_defs +ellps=WGS84 +towgs84=0,0,0"
+  ra         <- projectRaster(ra, crs = sr)
+  #ra         <- resample(ra, dem, method="bilinear")
+  catch.shp  <- spTransform(catch.shp,sr)
+  
+  ra         <- crop(ra,catch.shp)
+  ra         <- mask(ra,catch.shp)
+  assign(raname,ra)
+  plot(ra, main =raname);plot(catch.shp,add=T)
+  print(paste(raname,cellStats(ra,mean, na.rm=TRUE)))
+  
+  anu[which(anu[,2]==substr(myFiles[i],10,12)),14]<-cellStats(ra,mean, na.rm=TRUE)
+}
+pdf(file= "08_anu.pdf",width=3 ,height= 5,bg="transparent",family="Helvetica")#,paper="a4")
+
+par(mfrow = c(5,1),
+    oma = c(4,4,0,0) + 0.1,
+    mar = c(1,1,1,1) + 0.1)
+
+barplot(anu$pre,space=0,ylim=c(0,200),col=blue,names.arg=anu$mname,border="white")
+
+barplot(anu$ETM,space=0,ylim=c(0,200),col=red,names.arg=anu$mname,border="white",add=F,axes=T)
+
+barplot(anu$SB,space=0,ylim=c(0,200),col=gruenisch,names.arg=anu$mname,border="white")
+
+barplot(anu$RO,space=0,ylim=c(0,200),col=blue,names.arg=anu$mname,border="white")
+
+barplot(anu$ET_f,space=0,ylim=c(0,200),col=red,names.arg=anu$mname,border="white")
+
+
+dev.off()
+
+
+pdf(file= "08_trmm_chamo.pdf",width=5 ,height=3,bg="transparent",family="Helvetica")#,paper="a4")
+par(mfrow = c(1,1))
+barplot(anu$V14,space=0,ylim=c(0,200),col=blue,names.arg=anu$mname,border="white")
+dev.off()
