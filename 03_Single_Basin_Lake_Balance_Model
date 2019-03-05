@@ -57,3 +57,65 @@ setwd("./../")
 
 ############
 ############
+
+setwd("./../");setwd("./data")
+catch.shp <- readOGR(".",layer = "chamo_polygon_30m") #shapefile (masc)
+freq<- read.csv2("lake_altitude.csv")
+freq[,9]<-freq[,9]/100
+
+############
+############
+s_bas <- 80
+p_bas <- ( 1210.5 ) - s_bas
+
+aw_bas = (p_bas - e_ld) / (e_lk - e_ld);
+
+###############
+
+aw_paleolake = (approx(freq$height,freq$lake.area.ration, xout=1123.15)$y )
+p_paleolake <- (aw_paleolake * (e_lk - e_ld) + e_ld)+s_bas
+p_percentage = p_paleolake/(p_bas+s_bas);
+aw_h = approx(x=freq$lake.area.ration, y=freq$height, xout=(aw_bas))$y
+
+print(paste(c("modern precipitation:",p_bas+s_bas)))
+print(paste(c("modern equilibrium lake area ratio :",aw_bas)))
+print(paste(c("Modern equilibrium height::",aw_h)))
+
+print(paste(c("paleo-lake ratio :",aw_paleolake)))
+print(paste(c("Paleo-Precip (mm/yr) :",p_paleolake)))
+print(paste(c("Paleo-Precip (%% mod):",p_percentage)))
+#####################
+
+aw_run = freq[1,9]
+vol_delta = 0
+vol_total = 0
+altitude_year = 0
+catch.shp <- readOGR(".",layer = "chamo_polygon_30m") #shapefile (masc)
+sizecatchment<- area(catch.shp)/(1000^2)
+
+p_bas_paleo=1000
+(p_bas_paleo+200)/(p_bas+200)
+
+for (i in 1 :200){
+  vol_precipitation = p_bas_paleo * sizecatchment / 1000000;
+  vol_evaporation_lake = e_lk * aw_run[i] * sizecatchment / 1000000;
+  vol_evaporation_land = e_ld * (1-aw_run[i]) * sizecatchment / 1000000;
+  vol_delta[i] = vol_precipitation -vol_evaporation_lake - vol_evaporation_land
+  vol_total[i] = sum(vol_delta);
+  
+  if (vol_total[i]<freq[1,7]){
+    altitude_year[i]=freq[1,2]
+    aw_run[i+1]=  freq[2,9]
+  }else{
+    altitude_year[i] = approx(freq[,7], freq[,2], xout=vol_total[i])$y
+    aw_run[i+1] = approx(freq[,7], freq[,9], xout=vol_total[i])$y
+  }
+  if (altitude_year[i] > 1123.1){
+    altitude_year[i] = 1123.1
+    
+  }
+}
+
+plot(altitude_year,col="slateblue2",type="l",ylim=c(1100,1130))
+
+
