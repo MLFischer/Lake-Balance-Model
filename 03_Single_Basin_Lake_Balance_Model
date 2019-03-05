@@ -34,7 +34,7 @@ print(c("t_a_ld",t_a_ld))
 print(c("t_s_ld",t_s_ld))
 print(c("e_ld",e_ld))
 
-setwd("./../");setwd("./lake")
+setwd("./lake")
 
 source("constantslake.R")
 source("rswlake.R")
