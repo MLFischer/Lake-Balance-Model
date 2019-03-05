@@ -1,0 +1,888 @@
+
+###
+#preparing
+remove(list=ls()) #clean up#
+library(tiff) #just load some packages
+library(raster)
+library(rgdal)
+library(rgeos)
+library(sp)
+
+##################
+### Chapter 1 - prepare data
+##################
+# a ... abaya
+# b ... bahir
+# c ... chamo
+
+setwd("C:/...")
+freq_a<-read.csv2("lake_altitude_a.csv")#abaya
+freq_b<-read.csv2("lake_altitude_b.csv")#bahir
+freq_c<-read.csv2("lake_altitude_c.csv")#chamo
+
+pdf(file= "08_combined.pdf",width=7 ,height=5,bg="transparent",family="Helvetica")#,paper="a4")
+
+par(mfrow = c(2,2),
+    oma = c(4,4,0,0) + 0.1,
+    mar = c(1,1,1,1) + 0.1)
+b <- list()
+ETPD <- 167.5883 #potential evapo increase
+e_ld = 847.3602# 
+b$e_ld  <- 892.2 #+ ETPD
+#b$e_ld <- e_ld 
+b$e_lk  <- 1908
+b$s_bas <- 24.3
+b$p_bas <- 916.5
+b$size <- 20649.74
+
+a <- list()
+a$e_ld  <- 1122
+a$e_lk  <- 1513
+a$s_bas <- 260
+a$p_bas <- 1407
+a$size <-  16203.78
+freq_a$lake.area.ration <- freq_a$lake.area.ration/ 100
+
+
+c <- list()
+c$e_ld  <- 1060
+c$e_lk  <- 1550
+c$s_bas <- 80
+c$p_bas <- 1210.5
+c$size <-  1793.164
+freq_c$lake.area.ration <- freq_c$lake.area.ration/ 100
+
+
+#########################################
+a$vol_delta <- 0 
+b$vol_delta <- 0 
+c$vol_delta <- 0 
+
+a$vol_total <- 0
+b$vol_total <- 0
+c$vol_total <- 0
+
+a$aw_run<- freq_a[1,9]
+b$aw_run<- freq_b[1,9]
+c$aw_run<- freq_c[1,9]
+
+a$altitude_year <- 0
+b$altitude_year <- 0
+c$altitude_year <- 0
+
+#a$p_bas<- a$p_bas - a$s_bas
+#b$p_bas<- b$p_bas - b$s_bas
+#c$p_bas<- c$p_bas - c$s_bas
+
+p_incr <- 1.065  #percentage increased precipitation
+
+a_to_c <- 0
+c_to_b <- 0
+b_out <- 0
+
+for (i in 1 : 1:500){
+ ################
+ #ABAYA DYNAMICS:
+ a$vol_p<- (a$p_bas*p_incr) * a$size / 1000000
+ a$vol_e_lk<- a$e_lk * a$aw_run[i] * a$size / 1000000
+ a$vol_e_ld<- a$e_ld  * (1-a$aw_run[i] ) * a$size / 1000000
+ a$vol_delta[i]<-  a$vol_p -  a$vol_e_lk - a$vol_e_ld - (a$s_bas*a$size / 1000000)
+ if (i == 1){a$vol_total[i] <- a$vol_delta[i]}
+ if (i > 1){a$vol_total[i] <- a$vol_total[i-1] + a$vol_delta[i]}
+ a$vol_total[a$vol_total<0]<-0
+ if (a$vol_total[i]<freq_a[1,7]){
+   a$altitude_year[i]=freq_a[1,2]
+   a$aw_run[i+1]=  freq_a[1,9]
+   a_to_c[i] <- 0
+   
+ }else{
+   a$altitude_year[i] = approx(freq_a[,7], freq_a[,2], xout=a$vol_total[i])$y
+   a$aw_run[i+1] = approx(freq_a[,7], freq_a[,9], xout=a$vol_total[i])$y
+   a_to_c[i] <- 0
+ }
+ if (a$altitude_year[i] > 1194){
+   a$altitude_year[i] = 1194
+   a$vol_total[i] <- 25.244876
+   a_to_c[i] <- a$vol_delta[i]
+ } 
+ # a_to_c[i] <- 0 #turn the drainage on or off <3
+ ################
+ #CHAMO DYNAMICS:
+ c$vol_p<- (c$p_bas*p_incr) * c$size / 1000000
+ c$vol_e_lk<- c$e_lk * c$aw_run[i] * c$size / 1000000
+ c$vol_e_ld<- c$e_ld  * (1-c$aw_run[i] ) * c$size / 1000000
+ c$vol_delta[i]<-  c$vol_p -  c$vol_e_lk - c$vol_e_ld + a_to_c[i] - (c$s_bas*c$size / 1000000)
+
+ if (i == 1){c$vol_total[i] <- c$vol_delta[i]}
+ if (i > 1){c$vol_total[i] <- c$vol_total[i-1] + c$vol_delta[i]}
+ c$vol_total[c$vol_total<0]<-0
+ if (c$vol_total[i]<freq_c[1,7]){
+   c$altitude_year[i]=freq_c[1,2]
+   c$aw_run[i+1]=  freq_c[1,9]
+   c_to_b[i] <- 0
+ }else{
+   c$altitude_year[i] = approx(freq_c[,7], freq_c[,2], xout=c$vol_total[i])$y
+   c$aw_run[i+1] = approx(freq_c[,7], freq_c[,9], xout=c$vol_total[i])$y
+   c_to_b[i] <- 0
+ }
+ 
+ if (c$altitude_year[i] > 1123){
+   c$altitude_year[i] = 1123
+   c$vol_total[i] <- 5.1600304
+   c_to_b[i] <- c$vol_delta[i]
+ }  
+# c_to_b[i] <- 0 #turn the drainage on or off <3
+ 
+ ################
+ #BAHIR DYNAMICS:
+ b$vol_p<- (b$p_bas*p_incr) * b$size / 1000000
+ b$vol_e_lk<- b$e_lk * b$aw_run[i] * b$size / 1000000
+ b$vol_e_ld<- b$e_ld  * (1-b$aw_run[i] ) * b$size / 1000000
+ b$vol_delta[i]<-  b$vol_p -  b$vol_e_lk - b$vol_e_ld + c_to_b[i] - (b$s_bas* b$size / 1000000)
+
+ if (i == 1){b$vol_total[i] <- b$vol_delta[i]}
+ if (i > 1){b$vol_total[i] <- b$vol_total[i-1] + b$vol_delta[i]} 
+ b$vol_total[b$vol_total<0]<-0
+ if (b$vol_total[i]<freq_b[1,7]){
+   b$altitude_year[i]=freq_b[1,2]
+   b$aw_run[i+1]=  freq_b[1,9]
+   b_out[i]<- 0
+    }else{
+   b$altitude_year[i] = approx(freq_b[,7], freq_b[,2], xout=b$vol_total[i])$y
+   b$aw_run[i+1] = approx(freq_b[,7], freq_b[,9], xout=b$vol_total[i])$y
+   b_out[i]<- 0
+ }
+ 
+ if (b$altitude_year[i] > 543){
+   b$altitude_year[i] = 543
+   b$vol_total[i] <- 83.1698643
+   b_out[i] <- b$vol_delta[i]
+ }  
+ 
+}
+b$altitude_year<- c(498,b$altitude_year)
+a$altitude_year<- c(1176,a$altitude_year)
+c$altitude_year<- c(1109,c$altitude_year)
+
+
+a$altitude_year <- a$altitude_year -1176
+c$altitude_year <- c$altitude_year - 1109
+b$altitude_year <- b$altitude_year - 498
+
+#plot ( NULL,type="l",xlab ="Years after Onset/ Offset",
+#       ylab ="Lake Level above today",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",xlim=c(0,50),ylim=c(0,50),col="aquamarine1")
+#grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+#     lwd = par("lwd"), equilogs = TRUE)
+#axis (1, at=seq (0 ,50 ,5) ,paste (seq (0 ,50 ,5) ), cex.axis =0.75 )
+
+#axis (1, at=seq (0 ,500 ,100) ,c(500,400,300,200,100,0), cex.axis =0.75 )
+#axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+#lines(a$altitude_year,col="slateblue2",lty=3)
+#lines(b$altitude_year,col="slateblue4")
+#lines(c$altitude_year,col="slateblue2",lty=2)
+#plot(a_to_c,type="l",ylim=c(0,10),col="blue")
+#lines(c_to_b,col="darkblue")
+#lines(b_out,col="lightblue")
+####
+####
+####
+#########################################
+#par(bg=NA)
+#plot ( a$altitude_year,type="l",xlab ="Years after Onset/ Offset",
+#       ylab ="Lake Level above today",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",
+#       xlim=c(0,100),ylim=c(0,50),lty=3,
+#       col="slateblue2")
+
+#lines(b$altitude_year,col="slateblue4")
+#lines(c$altitude_year,col="slateblue2",lty=2)
+#axis (1, at=seq (0 ,100 ,10) ,paste (seq (0 ,100 ,10) ), cex.axis =0.75 )
+#axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+
+##################
+
+##################
+anu <- 100
+##################
+plot ( NULL,type="l",xlab ="Years after Onset/ Offset",
+       ylab ="Lake Level above today",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",xlim=c(0,100),ylim=c(0,50),col="aquamarine1")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+axis (1, at=seq (0 ,anu ,20) ,paste (seq (0 ,anu ,20) ), cex.axis =0.75 )
+
+#axis (1, at=seq (0 ,500 ,100) ,c(500,400,300,200,100,0), cex.axis =0.75 )
+axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+
+time <- NULL 
+time[1]<-NULL
+PRE<-NULL
+PRE[1]<-NULL
+PRE2<-NULL
+PRE2[1]<-NULL
+i1<-1
+dva<-NULL
+dvc<-NULL
+dvb<-NULL
+dva[1]<-NULL
+dvb[1]<-NULL
+dvc[1]<-NULL
+
+b_vol_e_lk <-NULL
+b_vol_e_ld <- NULL
+b_vol_p    <- NULL
+b_vol_e_ld[1] <-NULL
+b_vol_e_lk[1] <- NULL
+b_vol_p[1]    <- NULL
+
+
+for (k in 50:170){
+j <- k/10
+a$vol_delta <- 0 
+b$vol_delta <- 0 
+c$vol_delta <- 0 
+
+a$vol_total <- 0
+b$vol_total <- 0
+c$vol_total <- 0
+
+a$aw_run<- freq_a[1,9]
+b$aw_run<- freq_b[1,9]
+c$aw_run<- freq_c[1,9]
+
+a$altitude_year <- 0
+b$altitude_year <- 0
+c$altitude_year <- 0
+
+#a$p_bas<- a$p_bas - a$s_bas
+#b$p_bas<- b$p_bas - b$s_bas
+#c$p_bas<- c$p_bas - c$s_bas
+
+p_incr <- 1 + (j/100)  #percentage increased precipitation
+
+a_to_c <- 0
+c_to_b <- 0
+b_out <- 0
+
+for (i in 1 : anu){
+  ################
+  #ABAYA DYNAMICS:
+  a$vol_p<- (a$p_bas*p_incr) * a$size / 1000000
+  a$vol_e_lk<- a$e_lk * a$aw_run[i] * a$size / 1000000
+  a$vol_e_ld<- a$e_ld  * (1-a$aw_run[i] ) * a$size / 1000000
+  a$vol_delta[i]<-  a$vol_p -  a$vol_e_lk - a$vol_e_ld - (a$s_bas*a$size / 1000000)
+  
+  if (i == 1){a$vol_total[i] <- a$vol_delta[i]}
+  if (i > 1){a$vol_total[i] <- a$vol_total[i-1] + a$vol_delta[i]}
+  a$vol_total[a$vol_total<0]<-0
+  
+  if (a$vol_total[i]<freq_a[1,7]){
+    a$altitude_year[i]=freq_a[1,2]
+    a$aw_run[i+1]=  freq_a[1,9]
+    a_to_c[i] <- 0
+    
+  }else{
+    a$altitude_year[i] = approx(freq_a[,7], freq_a[,2], xout=a$vol_total[i])$y
+    a$aw_run[i+1] = approx(freq_a[,7], freq_a[,9], xout=a$vol_total[i])$y
+    a_to_c[i] <- 0
+  }
+  if (a$altitude_year[i] > 1194){
+    a$altitude_year[i] = 1194
+    a$vol_total[i] <- 25.244876
+    a_to_c[i] <- a$vol_delta[i]
+  } 
+  # a_to_c[i] <- 0 #turn the drainage on or off <3
+  ################
+  #CHAMO DYNAMICS:
+  c$vol_p<- (c$p_bas*p_incr) * c$size / 1000000
+  c$vol_e_lk<- c$e_lk * c$aw_run[i] * c$size / 1000000
+  c$vol_e_ld<- c$e_ld  * (1-c$aw_run[i] ) * c$size / 1000000
+  c$vol_delta[i]<-  c$vol_p -  c$vol_e_lk - c$vol_e_ld + a_to_c[i] - (c$s_bas*c$size / 1000000)
+  if (i == 1){c$vol_total[i] <- c$vol_delta[i]}
+  if (i > 1){c$vol_total[i] <- c$vol_total[i-1] + c$vol_delta[i]}
+  c$vol_total[c$vol_total<0]<-0
+  
+  if (c$vol_total[i]<freq_c[1,7]){
+    c$altitude_year[i]=freq_c[1,2]
+    c$aw_run[i+1]=  freq_c[1,9]
+    c_to_b[i] <- 0
+  }else{
+    c$altitude_year[i] = approx(freq_c[,7], freq_c[,2], xout=c$vol_total[i])$y
+    c$aw_run[i+1] = approx(freq_c[,7], freq_c[,9], xout=c$vol_total[i])$y
+    c_to_b[i] <- 0
+  }
+  
+  if (c$altitude_year[i] > 1123){
+    c$altitude_year[i] = 1123
+    c$vol_total[i] <- 5.1600304
+    c_to_b[i] <- c$vol_delta[i]
+  }  
+  # c_to_b[i] <- 0 #turn the drainage on or off <3
+  
+  ################
+  #BAHIR DYNAMICS:
+  b$vol_p<- (b$p_bas*p_incr) * b$size / 1000000
+  b$vol_e_lk<- b$e_lk * b$aw_run[i] * b$size / 1000000
+  b$vol_e_ld<- b$e_ld  * (1-b$aw_run[i] ) * b$size / 1000000
+  b$vol_delta[i]<-  b$vol_p -  b$vol_e_lk - b$vol_e_ld + c_to_b[i] - (b$s_bas* b$size / 1000000)
+  if (i == 1){b$vol_total[i] <- b$vol_delta[i]}
+  if (i > 1){b$vol_total[i] <- b$vol_total[i-1] + b$vol_delta[i]} 
+  b$vol_total[b$vol_total<0]<-0
+  
+  if (b$vol_total[i]<freq_b[1,7]){
+    b$altitude_year[i]=freq_b[1,2]
+    b$aw_run[i+1]=  freq_b[1,9]
+    b_out[i]<- 0
+  }else{
+    b$altitude_year[i] = approx(freq_b[,7], freq_b[,2], xout=b$vol_total[i])$y
+    b$aw_run[i+1] = approx(freq_b[,7], freq_b[,9], xout=b$vol_total[i])$y
+    b_out[i]<- 0
+  }
+  
+  if (b$altitude_year[i] > 543){
+    b$altitude_year[i] = 543
+    b$vol_total[i] <- 83.1698643
+    b_out[i] <- b$vol_delta[i]
+  }  
+  
+}
+if (b$altitude_year[anu]==543){
+print(paste(p_incr,"-",b$altitude_year[500],"-",min(which(b$altitude_year==543))))
+  time[i1]<-min(which(b$altitude_year==543))
+  PRE2[i1]<-p_incr
+
+
+  i1 <- i1 +1
+}
+else {print(paste(p_incr,"-",b$altitude_year[anu]))
+
+  }
+PRE[k]<-p_incr
+dva[k]<-max(a_to_c)
+dvb[k]<-max(c_to_b)
+dvc[k]<-max(b_out)
+b_vol_e_ld[k] <- b$vol_e_ld
+b_vol_e_lk[k] <-  b$vol_e_lk
+b_vol_p[k]    <-   b$vol_p
+
+b$altitude_year<- c(498,b$altitude_year)
+a$altitude_year<- c(1176,a$altitude_year)
+c$altitude_year<- c(1109,c$altitude_year)
+
+a$altitude_year <- a$altitude_year -1176
+c$altitude_year <- c$altitude_year - 1109
+b$altitude_year <- b$altitude_year - 498
+
+if ( k== 65 |k == 135 |k == 165   ){
+  lines(a$altitude_year,col="slateblue2",lty=3)
+  lines(b$altitude_year,col="slateblue4")
+  lines(c$altitude_year,col="slateblue2",lty=2)
+}
+}
+
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+plot ( a$altitude_year,type="n",xlab ="Years after Onset/ Offset",
+ylab ="Lake Level a.s.l.",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",xlim=c(0,500),ylim=c(0,50),col="aquamarine1")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+axis (1, at=seq (0 ,500 ,100) ,paste (seq (0 , 500 ,100) ), cex.axis =0.75 )
+axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+
+tl<- c(500,250,100,50)
+#########################################
+#########################################
+for (tlj in 1:4){
+  
+  
+
+a$vol_delta <- 0 
+b$vol_delta <- 0 
+c$vol_delta <- 0 
+
+a$vol_total <- 0
+b$vol_total <- 0
+c$vol_total <- 0
+
+a$aw_run<- freq_a[1,9]
+b$aw_run<- freq_b[1,9]
+c$aw_run<- freq_c[1,9]
+
+a$altitude_year <- 0
+b$altitude_year <- 0
+c$altitude_year <- 0
+
+#a$p_bas<- a$p_bas - a$s_bas
+#b$p_bas<- b$p_bas - b$s_bas
+#c$p_bas<- c$p_bas - c$s_bas
+
+#p_incr <- 1.097  #percentage increased precipitation
+
+a_to_c <- 0
+c_to_b <- 0
+b_out <- 0
+
+
+ incr_l <- 1.065
+diff      <- incr_l - 1
+
+timelapse <- tl[tlj]
+
+for (i in 1 : 1000){
+  if ( i < timelapse){
+    p_incr <- 1 + (i/timelapse * diff)
+  }else{p_incr = incr_l}
+  ################
+  #ABAYA DYNAMICS:
+  a$vol_p<- (a$p_bas*p_incr) * a$size / 1000000
+  a$vol_e_lk<- a$e_lk * a$aw_run[i] * a$size / 1000000
+  a$vol_e_ld<- a$e_ld  * (1-a$aw_run[i] ) * a$size / 1000000
+  a$vol_delta[i]<-  a$vol_p -  a$vol_e_lk - a$vol_e_ld - (a$s_bas*a$size / 1000000)
+  if (i == 1){a$vol_total[i] <- a$vol_delta[i]}
+  if (i > 1){a$vol_total[i] <- a$vol_total[i-1] + a$vol_delta[i]}
+  a$vol_total[a$vol_total<0]<-0
+  
+  if (a$vol_total[i]<freq_a[1,7]){
+    a$altitude_year[i]=freq_a[1,2]
+    a$aw_run[i+1]=  freq_a[1,9]
+    a_to_c[i] <- 0
+    
+  }else{
+    a$altitude_year[i] = approx(freq_a[,7], freq_a[,2], xout=a$vol_total[i])$y
+    a$aw_run[i+1] = approx(freq_a[,7], freq_a[,9], xout=a$vol_total[i])$y
+    a_to_c[i] <- 0
+  }
+  if (a$altitude_year[i] > 1194){
+    a$altitude_year[i] = 1194
+    a$vol_total[i] <- 25.244876
+    a_to_c[i] <- a$vol_delta[i]
+  } 
+  # a_to_c[i] <- 0 #turn the drainage on or off <3
+  ################
+  #CHAMO DYNAMICS:
+  c$vol_p<- (c$p_bas*p_incr) * c$size / 1000000
+  c$vol_e_lk<- c$e_lk * c$aw_run[i] * c$size / 1000000
+  c$vol_e_ld<- c$e_ld  * (1-c$aw_run[i] ) * c$size / 1000000
+  c$vol_delta[i]<-  c$vol_p -  c$vol_e_lk - c$vol_e_ld + a_to_c[i] - (c$s_bas*c$size / 1000000)
+  if (i == 1){c$vol_total[i] <- c$vol_delta[i]}
+  if (i > 1){c$vol_total[i] <- c$vol_total[i-1] + c$vol_delta[i]}
+  c$vol_total[c$vol_total<0]<-0
+  
+  if (c$vol_total[i]<freq_c[1,7]){
+    c$altitude_year[i]=freq_c[1,2]
+    c$aw_run[i+1]=  freq_c[1,9]
+    c_to_b[i] <- 0
+  }else{
+    c$altitude_year[i] = approx(freq_c[,7], freq_c[,2], xout=c$vol_total[i])$y
+    c$aw_run[i+1] = approx(freq_c[,7], freq_c[,9], xout=c$vol_total[i])$y
+    c_to_b[i] <- 0
+  }
+  
+  if (c$altitude_year[i] > 1123){
+    c$altitude_year[i] = 1123
+    c$vol_total[i] <- 5.1600304
+    c_to_b[i] <- c$vol_delta[i]
+  }  
+  # c_to_b[i] <- 0 #turn the drainage on or off <3
+  
+  ################
+  #BAHIR DYNAMICS:
+  b$vol_p<- (b$p_bas*p_incr) * b$size / 1000000
+  b$vol_e_lk<- b$e_lk * b$aw_run[i] * b$size / 1000000
+  b$vol_e_ld<- b$e_ld  * (1-b$aw_run[i] ) * b$size / 1000000
+  b$vol_delta[i]<-  b$vol_p -  b$vol_e_lk - b$vol_e_ld + c_to_b[i] - (b$s_bas* b$size / 1000000)
+  if (i == 1){b$vol_total[i] <- b$vol_delta[i]}
+  if (i > 1){b$vol_total[i] <- b$vol_total[i-1] + b$vol_delta[i]} 
+  b$vol_total[b$vol_total<0]<-0
+  
+  if (b$vol_total[i]<freq_b[1,7]){
+    b$altitude_year[i]=freq_b[1,2]
+    b$aw_run[i+1]=  freq_b[1,9]
+    b_out[i]<- 0
+  }else{
+    b$altitude_year[i] = approx(freq_b[,7], freq_b[,2], xout=b$vol_total[i])$y
+    b$aw_run[i+1] = approx(freq_b[,7], freq_b[,9], xout=b$vol_total[i])$y
+    b_out[i]<- 0
+  }
+  
+  if (b$altitude_year[i] > 543){
+    b$altitude_year[i] = 543
+    b$vol_total[i] <- 83.1698643
+    b_out[i] <- b$vol_delta[i]
+  }  
+  
+}
+
+
+a$altitude_year <- a$altitude_year -1176
+c$altitude_year <- c$altitude_year - 1109
+b$altitude_year <- b$altitude_year - 498
+
+
+lines(a$altitude_year,col="slateblue2",lty=3)
+lines(b$altitude_year,col="slateblue4")
+lines(c$altitude_year,col="slateblue2",lty=2)
+}
+####
+####
+####
+#########################################
+#par(bg=NA)
+#plot ( a$altitude_year,type="l",xlab ="Years after Onset/ Offset",
+#       ylab ="Lake Level above today",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",
+#       xlim=c(0,100),ylim=c(0,50),lty=3,
+#       col="slateblue2")#
+#
+#lines(b$altitude_year,col="slateblue4")
+#lines(c$altitude_year,col="slateblue2",lty=2)
+#axis (1, at=seq (0 ,100 ,10) ,paste (seq (0 ,100 ,10) ), cex.axis =0.75 )
+#axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+
+##################
+
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+#########################################
+
+#par(bg=NA)
+#plot ( NA,type="l",xlab ="Years after Onset/ Offset",
+#       ylab ="Lake Level above today",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",
+#       xlim=c(0,500),ylim=c(0,50),lty=3,
+#       col="slateblue2")
+
+a$vol_delta <- 0 
+b$vol_delta <- 0 
+c$vol_delta <- 0 
+
+a$vol_total <- 0
+b$vol_total <- 0
+c$vol_total <- 0
+
+a$aw_run<- freq_a[1,9]
+b$aw_run<- freq_b[1,9]
+c$aw_run<- freq_c[1,9]
+
+a$altitude_year <- 0
+b$altitude_year <- 0
+c$altitude_year <- 0
+
+a$altitude_year <- 1194
+b$altitude_year <- 543
+c$altitude_year <- 1123
+
+a$vol_total[1]<- approx(freq_a[,2], freq_a[,7], xout=1194)$y
+b$vol_total[1]<- approx(freq_b[,2], freq_b[,7], xout=543)$y
+c$vol_total[1]<- approx(freq_c[,2], freq_c[,7], xout=1123)$y
+
+a$aw_run<-c(approx(freq_a[,2], freq_a[,9], xout=1194)$y,approx(freq_a[,2], freq_a[,9], xout=1194)$y)
+b$aw_run<-c(approx(freq_b[,2], freq_b[,9], xout=543)$y,approx(freq_b[,2], freq_b[,9], xout=543)$y)
+c$aw_run<-c(approx(freq_c[,2], freq_c[,9], xout=1123)$y,approx(freq_c[,2], freq_c[,9], xout=1123)$y)
+#a$p_bas<- a$p_bas - a$s_bas
+#b$p_bas<- b$p_bas - b$s_bas
+#c$p_bas<- c$p_bas - c$s_bas
+
+p_incr <- 1.00  #percentage increased precipitation
+
+a_to_c <- 0
+c_to_b <- 0
+b_out <- 0
+
+for (i in 2 : 500){
+  ################
+  #ABAYA DYNAMICS:
+  a$vol_p<- (a$p_bas*p_incr) * a$size / 1000000
+  a$vol_e_lk<- a$e_lk * a$aw_run[i] * a$size / 1000000
+  a$vol_e_ld<- a$e_ld  * (1-a$aw_run[i] ) * a$size / 1000000
+  a$vol_delta[i]<-  a$vol_p -  a$vol_e_lk - a$vol_e_ld - (a$s_bas*a$size / 1000000)
+  if (i == 1){a$vol_total[i] <- a$vol_delta[i]}
+  if (i > 1){a$vol_total[i] <- a$vol_total[i-1] + a$vol_delta[i]}
+  
+  if (a$vol_total[i]<freq_a[1,7]){
+    a$altitude_year[i]=freq_a[1,2]
+    a$aw_run[i+1]=  freq_a[1,9]
+    a_to_c[i] <- 0
+    
+  }else{
+    a$altitude_year[i] = approx(freq_a[,7], freq_a[,2], xout=a$vol_total[i])$y
+    a$aw_run[i+1] = approx(freq_a[,7], freq_a[,9], xout=a$vol_total[i])$y
+    a_to_c[i] <- 0
+  }
+  if (a$altitude_year[i] > 1194){
+    a$altitude_year[i] = 1194
+    a$vol_total[i] <- 25.244876
+    a_to_c[i] <- a$vol_delta[i]
+  } 
+  # a_to_c[i] <- 0 #turn the drainage on or off <3
+  ################
+  #CHAMO DYNAMICS:
+  c$vol_p<- (c$p_bas*p_incr) * c$size / 1000000
+  c$vol_e_lk<- c$e_lk * c$aw_run[i] * c$size / 1000000
+  c$vol_e_ld<- c$e_ld  * (1-c$aw_run[i] ) * c$size / 1000000
+  c$vol_delta[i]<-  c$vol_p -  c$vol_e_lk - c$vol_e_ld + a_to_c[i] - (c$s_bas*c$size / 1000000)
+  if (i == 1){c$vol_total[i] <- c$vol_delta[i]}
+  if (i > 1){c$vol_total[i] <- c$vol_total[i-1] + c$vol_delta[i]}
+  
+  if (c$vol_total[i]<freq_c[1,7]){
+    c$altitude_year[i]=freq_c[1,2]
+    c$aw_run[i+1]=  freq_c[1,9]
+    c_to_b[i] <- 0
+  }else{
+    c$altitude_year[i] = approx(freq_c[,7], freq_c[,2], xout=c$vol_total[i])$y
+    c$aw_run[i+1] = approx(freq_c[,7], freq_c[,9], xout=c$vol_total[i])$y
+    c_to_b[i] <- 0
+  }
+  
+  if (c$altitude_year[i] > 1123){
+    c$altitude_year[i] = 1123
+    c$vol_total[i] <- 5.1600304
+    c_to_b[i] <- c$vol_delta[i]
+  }  
+  # c_to_b[i] <- 0 #turn the drainage on or off <3
+  
+  ################
+  #BAHIR DYNAMICS:
+  b$vol_p<- (b$p_bas*p_incr) * b$size / 1000000
+  b$vol_e_lk<- b$e_lk * b$aw_run[i] * b$size / 1000000
+  b$vol_e_ld<- b$e_ld  * (1-b$aw_run[i] ) * b$size / 1000000
+  b$vol_delta[i]<-  b$vol_p -  b$vol_e_lk - b$vol_e_ld + c_to_b[i] - (b$s_bas* b$size / 1000000)
+  if (i == 1){b$vol_total[i] <- b$vol_delta[i]}
+  if (i > 1){b$vol_total[i] <- b$vol_total[i-1] + b$vol_delta[i]} 
+  
+  if (b$vol_total[i]<freq_b[1,7]){
+    b$altitude_year[i]=freq_b[1,2]
+    b$aw_run[i+1]=  freq_b[1,9]
+    b_out[i]<- 0
+  }else{
+    b$altitude_year[i] = approx(freq_b[,7], freq_b[,2], xout=b$vol_total[i])$y
+    b$aw_run[i+1] = approx(freq_b[,7], freq_b[,9], xout=b$vol_total[i])$y
+    b_out[i]<- 0
+  }
+  
+  if (b$altitude_year[i] > 543){
+    b$altitude_year[i] = 543
+    b$vol_total[i] <- 83.1698643
+    b_out[i] <- b$vol_delta[i]
+  }  
+  
+}
+a$altitude_year <- a$altitude_year -1176
+c$altitude_year <- c$altitude_year - 1109
+b$altitude_year <- b$altitude_year - 498
+
+#a$altitude_year <- rev(a$altitude_year)
+#c$altitude_year <- rev(c$altitude_year)
+#b$altitude_year <- rev(b$altitude_year)
+
+#par(bg=NA)
+plot ( a$altitude_year,type="n",xlab ="Years after Onset/ Offset",
+       ylab ="Lake Level a.s.l.",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",xlim=c(0,100),ylim=c(0,50),col="aquamarine1")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+lines(a$altitude_year,col="orangered2",lty=2)
+lines(b$altitude_year,col="orangered4")
+lines(c$altitude_year,col="orangered2",lty=3)
+#axis (3, at=seq (0 ,500 ,100) ,paste (seq (0 ,500 ,100) ), cex.axis =0.75 )
+axis (1, at=seq (0 ,anu ,20) ,paste (seq (0 ,anu ,20) ), cex.axis =0.75 )
+
+#axis (1, at=seq (0 ,500 ,100) ,c(500,400,300,200,100,0), cex.axis =0.75 )
+axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+
+####
+####
+##################################################################################################
+#################################################
+#################################################
+#################################################
+#################################################
+#################################################
+#################################################
+#################################################
+#################################################
+tl<- c(500,250,100,50)
+plot ( NA,type="l",xlab ="Years after Onset/ Offset",
+       ylab ="Lake Level a.s.l.",xaxt ="n",yaxt ="n",cex.lab =0.75 , bg="grey",xlim=c(0,500),ylim=c(0,50),col="aquamarine1")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+axis (1, at=seq (0 ,500 ,100) ,rev(c(500,400,300,200,100,0)), cex.axis =0.75 )
+axis (2, at=seq (0 ,50 ,10) ,paste (seq (0 ,50 ,10) ), cex.axis =0.75 )
+#########################################
+#########################################
+for (tlj in 1:4){
+  
+  
+#
+a$vol_delta <- 0 
+b$vol_delta <- 0 
+c$vol_delta <- 0 
+
+a$vol_total <- 0
+b$vol_total <- 0
+c$vol_total <- 0
+
+a$aw_run<- freq_a[1,9]
+b$aw_run<- freq_b[1,9]
+c$aw_run<- freq_c[1,9]
+
+a$altitude_year <- 1194
+b$altitude_year <- 543
+c$altitude_year <- 1123
+
+a$vol_total[1]<- approx(freq_a[,2], freq_a[,7], xout=1194)$y
+b$vol_total[1]<- approx(freq_b[,2], freq_b[,7], xout=543)$y
+c$vol_total[1]<- approx(freq_c[,2], freq_c[,7], xout=1123)$y
+
+a$aw_run<-c(approx(freq_a[,2], freq_a[,9], xout=1194)$y,approx(freq_a[,2], freq_a[,9], xout=1194)$y)
+b$aw_run<-c(approx(freq_b[,2], freq_b[,9], xout=543)$y,approx(freq_b[,2], freq_b[,9], xout=543)$y)
+c$aw_run<-c(approx(freq_c[,2], freq_c[,9], xout=1123)$y,approx(freq_c[,2], freq_c[,9], xout=1123)$y)
+#a$p_bas<- a$p_bas - a$s_bas
+#b$p_bas<- b$p_bas - b$s_bas
+#c$p_bas<- c$p_bas - c$s_bas
+
+#p_incr <- 1.00  #percentage increased precipitation
+
+a_to_c <- 0
+c_to_b <- 0
+b_out <- 0
+
+incr_l <- 1.065
+diff      <- incr_l - 1
+
+timelapse <- tl[tlj]
+
+for (i in 2 : 500){
+  if ( i < timelapse){
+    p_incr <- incr_l - (i/timelapse * diff)
+  }else{p_incr = 1}
+  ################
+  #ABAYA DYNAMICS:
+  a$vol_p<- (a$p_bas*p_incr) * a$size / 1000000
+  a$vol_e_lk<- a$e_lk * a$aw_run[i] * a$size / 1000000
+  a$vol_e_ld<- a$e_ld  * (1-a$aw_run[i] ) * a$size / 1000000
+  a$vol_delta[i]<-  a$vol_p -  a$vol_e_lk - a$vol_e_ld - (a$s_bas*a$size / 1000000)
+  if (i == 1){a$vol_total[i] <- a$vol_delta[i]}
+  if (i > 1){a$vol_total[i] <- a$vol_total[i-1] + a$vol_delta[i]}
+  
+  if (a$vol_total[i]<freq_a[1,7]){
+    a$altitude_year[i]=freq_a[1,2]
+    a$aw_run[i+1]=  freq_a[1,9]
+    a_to_c[i] <- 0
+    
+  }else{
+    a$altitude_year[i] = approx(freq_a[,7], freq_a[,2], xout=a$vol_total[i])$y
+    a$aw_run[i+1] = approx(freq_a[,7], freq_a[,9], xout=a$vol_total[i])$y
+    a_to_c[i] <- 0
+  }
+  if (a$altitude_year[i] > 1194){
+    a$altitude_year[i] = 1194
+    a$vol_total[i] <- 25.244876
+    a_to_c[i] <- a$vol_delta[i]
+  } 
+  # a_to_c[i] <- 0 #turn the drainage on or off <3
+  ################
+  #CHAMO DYNAMICS:
+  c$vol_p<- (c$p_bas*p_incr) * c$size / 1000000
+  c$vol_e_lk<- c$e_lk * c$aw_run[i] * c$size / 1000000
+  c$vol_e_ld<- c$e_ld  * (1-c$aw_run[i] ) * c$size / 1000000
+  c$vol_delta[i]<-  c$vol_p -  c$vol_e_lk - c$vol_e_ld + a_to_c[i] - (c$s_bas*c$size / 1000000)
+  if (i == 1){c$vol_total[i] <- c$vol_delta[i]}
+  if (i > 1){c$vol_total[i] <- c$vol_total[i-1] + c$vol_delta[i]}
+  
+  if (c$vol_total[i]<freq_c[1,7]){
+    c$altitude_year[i]=freq_c[1,2]
+    c$aw_run[i+1]=  freq_c[1,9]
+    c_to_b[i] <- 0
+  }else{
+    c$altitude_year[i] = approx(freq_c[,7], freq_c[,2], xout=c$vol_total[i])$y
+    c$aw_run[i+1] = approx(freq_c[,7], freq_c[,9], xout=c$vol_total[i])$y
+    c_to_b[i] <- 0
+  }
+  
+  if (c$altitude_year[i] > 1123){
+    c$altitude_year[i] = 1123
+    c$vol_total[i] <- 5.1600304
+    c_to_b[i] <- c$vol_delta[i]
+  }  
+  # c_to_b[i] <- 0 #turn the drainage on or off <3
+  
+  ################
+  #BAHIR DYNAMICS:
+  b$vol_p<- (b$p_bas*p_incr) * b$size / 1000000
+  b$vol_e_lk<- b$e_lk * b$aw_run[i] * b$size / 1000000
+  b$vol_e_ld<- b$e_ld  * (1-b$aw_run[i] ) * b$size / 1000000
+  b$vol_delta[i]<-  b$vol_p -  b$vol_e_lk - b$vol_e_ld + c_to_b[i] - (b$s_bas* b$size / 1000000)
+  if (i == 1){b$vol_total[i] <- b$vol_delta[i]}
+  if (i > 1){b$vol_total[i] <- b$vol_total[i-1] + b$vol_delta[i]} 
+  
+  if (b$vol_total[i]<freq_b[1,7]){
+    b$altitude_year[i]=freq_b[1,2]
+    b$aw_run[i+1]=  freq_b[1,9]
+    b_out[i]<- 0
+  }else{
+    b$altitude_year[i] = approx(freq_b[,7], freq_b[,2], xout=b$vol_total[i])$y
+    b$aw_run[i+1] = approx(freq_b[,7], freq_b[,9], xout=b$vol_total[i])$y
+    b_out[i]<- 0
+  }
+  
+  if (b$altitude_year[i] > 543){
+    b$altitude_year[i] = 543
+    b$vol_total[i] <- 83.1698643
+    b_out[i] <- b$vol_delta[i]
+  }  
+  
+}
+a$altitude_year <- a$altitude_year -1176
+c$altitude_year <- c$altitude_year - 1109
+b$altitude_year <- b$altitude_year - 498
+
+#a$altitude_year <- rev(a$altitude_year)
+#c$altitude_year <- rev(c$altitude_year)
+#b$altitude_year <- rev(b$altitude_year)
+
+#par(bg=NA)
+
+
+lines(a$altitude_year,col="orangered2",lty=2)
+lines(b$altitude_year,col="orangered4")
+lines(c$altitude_year,col="orangered2",lty=3)
+#axis (3, at=seq (0 ,500 ,100) ,paste (seq (0 ,500 ,100) ), cex.axis =0.75 )
+
+}
+####
+dev.off()
+
+pdf(file= "08_comb_meta.pdf",width=7 ,height=3,bg="transparent",family="Helvetica")#,paper="a4")
+par(mfrow = c(1,3))#,
+    #oma = c(4,4,0,0) + 0.1,
+    #mar = c(1,1,1,1) + 0.1)
+plot(PRE2*100,time, type="l",ylim=c(0,400),xlab="Precipiation (%)",ylab="Transition time (years)",xlim=c(100,130))
+#########################################
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+plot(PRE*100,dva,type="l",col="slateblue2",lty=3, ylim=c(0,10),xlim=c(100,130),xlab="Precipiation (%)",ylab="Exchange rate (km³)")
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+lines(PRE*100,dvb,col="slateblue2",lty=2)
+lines(PRE*100,dvc,col="slateblue4")
+
+
+#lines(a$altitude_year,col="slateblue2",lty=3)
+#lines(b$altitude_year,col="slateblue",lty=2)
+#lines(c$altitude_year,col="slateblue4")
+#lines(PRE,b_vol_e_ld)
+#lines(PRE,b_vol_e_lk)
+#lines(PRE,b_vol_p)
+rel2<- dvb/(b_vol_p+dvb)
+plot(PRE*100,rel2*100,type="l",xlim=c(100,130),ylim=c(0,30),xlab="Precipiation (%)",ylab="Extended Catchment Ratio (%)")
+
+grid(nx = NULL, ny = NULL, col = "lightgray", lty = "dotted",
+     lwd = par("lwd"), equilogs = TRUE)
+dev.off()
